@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+
+'use strict';
+const parse = require('xdr-tools').XdrParser,
+      path = require('path'),
+      fs = require('fs');
+
+if (process.argv.length !== 3) {
+  console.log('usage: gen-api <path>');
+  process.exit(1);
+}
+
+function upperFirst(str) {
+  return str.charAt(0).toUpperCase() + str.substring(1);
+}
+
+function toCamelCase(str, sep) {
+  sep = sep || '_';
+  return str.split(sep).map((x, i) => i !== 0 ? upperFirst(x) : x).join('');
+}
+
+const specPath = process.argv[2];
+const input = fs.readFileSync(specPath, 'utf-8');
+const result = parse(input.toString());
+const structs = result.value.filter(r => r.type === 'struct');
+const methods = structs.filter(s => s.name.endsWith('_args'));
+const api = methods.reduce((def, method) => {
+  let methodBits = method.name.replace('remote_', '').replace('_args', '').split('_');
+  let section = methodBits.shift();
+  if (!def.hasOwnProperty(section)) def[section] = {};
+  let methodName =
+    methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
+
+  def[section][methodName] = { args: method };
+  let retName = method.name.replace('_args', '_ret');
+  const rets = structs.filter(s => s.name === retName);
+  def[section][methodName].ret = (rets.length) ? rets[0] : null;
+  return def;
+}, {});
+
+// console.dir(api, { depth: null });
+
+if (fs.existsSync('gen')) {
+  fs.readdirSync('gen')
+    .forEach(file => fs.unlinkSync(path.join('gen', file)));
+} else {
+  fs.mkdirSync('gen');
+}
+
+for (let module in api) {
+  let stream = fs.createWriteStream(`gen/${module}.js`);
+  stream.write("'use strict';\n\n");
+  stream.write(`function ${upperFirst(module)}() {}\n\n`);
+
+  for (let method in api[module]) {
+    let methodArgs = api[module][method].args;
+    let signature = methodArgs.members.map(m => toCamelCase(m.name)).join(', ');
+
+    console.dir(api[module][method], { depth: null });
+    stream.write(`${upperFirst(module)}.prototype.${method} = function(${signature}) {\n\n};\n\n`);
+  }
+}
