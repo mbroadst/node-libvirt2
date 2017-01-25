@@ -19,6 +19,11 @@ function toCamelCase(str, sep) {
   return str.split(sep).map((x, i) => i !== 0 ? upperFirst(x) : x).join('');
 }
 
+const LOOKUP_METHODS = [
+  'lookupByName', 'lookupById', 'lookupByUuid', 'lookupByKey', 'lookupByPath',
+  'lookupByMacString', 'lookupByUsage', 'lookupByVolume'
+];
+
 const specPath = process.argv[2];
 const input = fs.readFileSync(specPath, 'utf-8');
 const result = parse(input.toString());
@@ -34,6 +39,15 @@ const api = methods.reduce((def, method) => {
   let methodName =
     methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
 
+  let lookupType;
+  if (LOOKUP_METHODS.indexOf(methodName) !== -1) {
+    methodBits.splice(1, 0, section);
+    methodName =
+      methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
+    lookupType = upperFirst(section);
+    section = 'connect';
+  }
+
   if (def[section].hasOwnProperty(methodName)) {
     // already processed this method, bail
     return def;
@@ -41,6 +55,7 @@ const api = methods.reduce((def, method) => {
 
   def[section][methodName] = { proc: procName };
   def[section][methodName][suffix.substring(1)] = method;
+  if (!!lookupType) def[section][methodName].lookupType = lookupType;
 
   let pairName = method.name.replace(suffix, altSuffix);
   const pairMethods = structs.filter(s => s.name === pairName);
@@ -56,15 +71,21 @@ if (fs.existsSync('gen')) {
   fs.mkdirSync('gen');
 }
 
+function writeClassDefinition(module) {
+}
+
 for (let module in api) {
   let stream = fs.createWriteStream(path.resolve('..', `lib/${module}.js`));
   stream.write("'use strict';\nconst rp = {};\nconst proc = rp.remote_procedure;\n\n");
+
+  // writeClassDefinition(api[module]);
   stream.write(`function ${upperFirst(module)}() {}\n\n`);
 
   for (let method in api[module]) {
     let procName = api[module][method].proc;
     let methodArgs = api[module][method].args;
     let methodReturn = api[module][method].ret;
+    let lookupType = api[module][method].lookupType;
     let signature = methodArgs ? methodArgs.members.map(m => toCamelCase(m.name)).join(', ') : '';
     signature += methodArgs ? ', callback' : 'callback';
 
@@ -96,7 +117,11 @@ for (let module in api) {
     if (methodReturn) {
       stream.write(`      let result = rp.${methodReturn.name}.fromXDR(payload);\n`);
       stream.write(`      result = result.hasOwnProperty('_attributes') ? result._attributes : result;\n`);
-      stream.write('      cb(null, result);\n');
+      if (lookupType) {
+        stream.write(`      cb(null, new ${lookupType}(this, result));\n`);
+      } else {
+        stream.write('      cb(null, result);\n');
+      }
     } else {
       stream.write('      cb();\n');
     }
