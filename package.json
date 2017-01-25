@@ -9,6 +9,7 @@
   "author": "Matt Broadstone <mbroadst@gmail.com>",
   "license": "MIT",
   "dependencies": {
+    "bl": "^1.2.0",
     "bluebird": "^3.4.7",
     "js-xdr": "^1.0.0"
   },
