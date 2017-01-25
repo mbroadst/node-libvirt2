@@ -23,22 +23,31 @@ const specPath = process.argv[2];
 const input = fs.readFileSync(specPath, 'utf-8');
 const result = parse(input.toString());
 const structs = result.value.filter(r => r.type === 'struct');
-const methods = structs.filter(s => s.name.endsWith('_args'));
+const methods = structs.filter(s => s.name.endsWith('_args') || s.name.endsWith('_ret'));
 const api = methods.reduce((def, method) => {
-  let methodBits = method.name.replace('remote_', '').replace('_args', '').split('_');
+  let suffix = method.name.endsWith('_args') ? '_args' : '_ret';
+  let altSuffix = method.name.endsWith('_args') ? '_ret' : '_args';
+  let methodBits = method.name.replace('remote_', '').replace(suffix, '').split('_');
+  let procName = 'REMOTE_PROC_' + methodBits.map(b => b.toUpperCase()).join('_');
   let section = methodBits.shift();
   if (!def.hasOwnProperty(section)) def[section] = {};
   let methodName =
     methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
 
-  def[section][methodName] = { args: method };
-  let retName = method.name.replace('_args', '_ret');
-  const rets = structs.filter(s => s.name === retName);
-  def[section][methodName].ret = (rets.length) ? rets[0] : null;
+  if (def[section].hasOwnProperty(methodName)) {
+    // already processed this method, bail
+    return def;
+  }
+
+  def[section][methodName] = { proc: procName };
+  def[section][methodName][suffix.substring(1)] = method;
+
+  let pairName = method.name.replace(suffix, altSuffix);
+  const pairMethods = structs.filter(s => s.name === pairName);
+  def[section][methodName][altSuffix.substring(1)] =
+    (pairMethods.length) ? pairMethods[0] : null;
   return def;
 }, {});
-
-// console.dir(api, { depth: null });
 
 if (fs.existsSync('gen')) {
   fs.readdirSync('gen')
@@ -48,15 +57,52 @@ if (fs.existsSync('gen')) {
 }
 
 for (let module in api) {
-  let stream = fs.createWriteStream(`gen/${module}.js`);
-  stream.write("'use strict';\n\n");
+  let stream = fs.createWriteStream(path.resolve('..', `lib/${module}.js`));
+  stream.write("'use strict';\nconst rp = {};\nconst proc = rp.remote_procedure;\n\n");
   stream.write(`function ${upperFirst(module)}() {}\n\n`);
 
   for (let method in api[module]) {
+    let procName = api[module][method].proc;
     let methodArgs = api[module][method].args;
-    let signature = methodArgs.members.map(m => toCamelCase(m.name)).join(', ');
+    let methodReturn = api[module][method].ret;
+    let signature = methodArgs ? methodArgs.members.map(m => toCamelCase(m.name)).join(', ') : '';
+    signature += methodArgs ? ', callback' : 'callback';
 
-    console.dir(api[module][method], { depth: null });
-    stream.write(`${upperFirst(module)}.prototype.${method} = function(${signature}) {\n\n};\n\n`);
+    // console.dir(api[module][method], { depth: null });
+    stream.write('/**\n *\n');
+    if (methodArgs) {
+      methodArgs.members.map(m => stream.write(` * @param ${toCamelCase(m.name)}\n`));
+    }
+    stream.write(' * @param [callback]\n');
+    stream.write(' */\n');
+    stream.write(`${upperFirst(module)}.prototype.${method} = function(${signature}) {\n`);
+
+    if (methodArgs) {
+      stream.write(`  let data = new rp.${methodArgs.name}({\n`);
+      stream.write(methodArgs.members.reduce((out, m) => {
+        out.push(`    ${toCamelCase(m.name)}: ${toCamelCase(m.name)}`);
+        return out;
+      }, []).join(',\n'));
+      stream.write('\n  });\n\n');
+    }
+
+    let maybeData = (!!methodArgs) ? 'data.toXDR()' : 'null';
+    stream.write('  let promise = new Promise((resolve, reject) => {\n');
+    stream.write('    let cb = (e, r) => (e) ? reject(e) : resolve(r);\n');
+
+    stream.write(`    this.request(proc.${procName}(), ${maybeData}, (err, payload) => {\n`);
+    stream.write('      if (err) { cb(err, null); return; }\n');
+
+    if (methodReturn) {
+      stream.write(`      let result = rp.${methodReturn.name}.fromXDR(payload);\n`);
+      stream.write(`      result = result.hasOwnProperty('_attributes') ? result._attributes : result;\n`);
+      stream.write('      cb(null, result);\n');
+    } else {
+      stream.write('      cb();\n');
+    }
+    stream.write('    });\n');
+    stream.write('  });\n\n');
+    stream.write('  return promise.asCallback(callback);\n');
+    stream.write('};\n\n');
   }
 }
