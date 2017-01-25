@@ -125,7 +125,7 @@ for (let module in api) {
     stream.write(`${className(module)}.prototype.${method} = function(${signature}) {\n`);
 
     if (methodArgs) {
-      stream.write(`  let data = new rp.${methodArgs.name}({\n`);
+      stream.write(`  let args = new rp.${methodArgs.name}({\n`);
       stream.write(methodArgs.members.reduce((out, m) => {
         if (isRef(module, m.name)) {
           out.push(`    ${toCamelCase(m.name)}: this.ref`);
@@ -138,14 +138,14 @@ for (let module in api) {
       stream.write('\n  });\n\n');
     }
 
-    let maybeData = (!!methodArgs) ? 'data.toXDR()' : 'null';
+    let maybeArgs = (!!methodArgs) ? 'args.toXDR()' : 'null';
     stream.write('  let promise = new Promise((resolve, reject) => {\n');
     stream.write('    let cb = (e, r) => (e) ? reject(e) : resolve(r);\n');
 
     if (module === 'connect') {
-      stream.write(`    this.request(proc.${procName}(), ${maybeData}, (err, payload) => {\n`);
+      stream.write(`    this.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`);
     } else {
-      stream.write(`    this.conn.request(proc.${procName}(), ${maybeData}, (err, payload) => {\n`);
+      stream.write(`    this.conn.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`);
     }
 
     stream.write('      if (err) { cb(err, null); return; }\n');
