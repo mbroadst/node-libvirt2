@@ -36,6 +36,10 @@ const api = methods.reduce((def, method) => {
   let procName = 'REMOTE_PROC_' + methodBits.map(b => b.toUpperCase()).join('_');
   let section = methodBits.shift();
   if (section === 'storage') { section += '_' + methodBits.shift(); }
+  if (section === 'node') {
+    if (methodBits[0] === 'device') section += '_' + methodBits.shift();
+    else section += '_device';  // legacy naming scheme
+  }
 
   if (!def.hasOwnProperty(section)) def[section] = {};
   let methodName =
