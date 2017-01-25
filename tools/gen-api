@@ -35,16 +35,18 @@ const api = methods.reduce((def, method) => {
   let methodBits = method.name.replace('remote_', '').replace(suffix, '').split('_');
   let procName = 'REMOTE_PROC_' + methodBits.map(b => b.toUpperCase()).join('_');
   let section = methodBits.shift();
+  if (section === 'storage') { section += '_' + methodBits.shift(); }
+
   if (!def.hasOwnProperty(section)) def[section] = {};
   let methodName =
     methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
 
   let lookupType;
   if (LOOKUP_METHODS.indexOf(methodName) !== -1) {
-    methodBits.splice(1, 0, section);
+    methodBits.splice(1, 0, className(section));
     methodName =
       methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
-    lookupType = upperFirst(section);
+    lookupType = className(section);
     section = 'connect';
   }
 
@@ -64,15 +66,9 @@ const api = methods.reduce((def, method) => {
   return def;
 }, {});
 
-if (fs.existsSync('gen')) {
-  fs.readdirSync('gen')
-    .forEach(file => fs.unlinkSync(path.join('gen', file)));
-} else {
-  fs.mkdirSync('gen');
-}
-
+function className(moduleName) { return upperFirst(toCamelCase(moduleName)); }
 function writeClassDefinition(stream, moduleName, def) {
-  stream.write(`class ${upperFirst(moduleName)} {\n`);
+  stream.write(`class ${className(moduleName)} {\n`);
 
   if (moduleName === 'connect') {
     stream.write('  constructor() {}\n');
@@ -90,7 +86,9 @@ function isRef(module, param) {
          (module === 'interface' && param === 'iface') ||
          (module === 'network' && param === 'net') ||
          (module === 'nwfilter' && param === 'nwfilter') ||
-         (module === 'secret' && param === 'secret');
+         (module === 'secret' && param === 'secret') ||
+         (module === 'storage_pool' && param === 'pool') ||
+         (module === 'storage_vol' && param === 'vol');
 }
 
 for (let module in api) {
@@ -120,7 +118,7 @@ for (let module in api) {
     }
     stream.write(' * @param [callback]\n');
     stream.write(' */\n');
-    stream.write(`${upperFirst(module)}.prototype.${method} = function(${signature}) {\n`);
+    stream.write(`${className(module)}.prototype.${method} = function(${signature}) {\n`);
 
     if (methodArgs) {
       stream.write(`  let data = new rp.${methodArgs.name}({\n`);
