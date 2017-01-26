@@ -19,6 +19,10 @@ function toCamelCase(str, sep) {
   return str.split(sep).map((x, i) => i !== 0 ? upperFirst(x) : x).join('');
 }
 
+const CREATE_METHODS = [
+  'createXml', 'createXmlWithFiles'
+];
+
 const LOOKUP_METHODS = [
   'lookupByName', 'lookupById', 'lookupByUuid', 'lookupByKey', 'lookupByPath',
   'lookupByMacString', 'lookupByUsage', 'lookupByVolume'
@@ -46,12 +50,13 @@ const api = methods.reduce((def, method) => {
     methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
 
   let lookupType;
-  if (LOOKUP_METHODS.indexOf(methodName) !== -1) {
+  if (LOOKUP_METHODS.indexOf(methodName) !== -1 ||
+      CREATE_METHODS.indexOf(methodName) !== -1) {
     methodBits.splice(1, 0, className(section));
     methodName =
       methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
     lookupType = className(section);
-    section = 'connect';
+    section = (section === 'storage_vol') ? 'storage_pool' : 'connect';
   }
 
   if (def[section].hasOwnProperty(methodName)) {
