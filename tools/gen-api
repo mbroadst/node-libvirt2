@@ -19,6 +19,10 @@ function toCamelCase(str, sep) {
   return str.split(sep).map((x, i) => i !== 0 ? upperFirst(x) : x).join('');
 }
 
+function toSnakeCase(str) {
+  return str.replace(/([A-Z])/g, '_$1').replace(/^_/, '').toLowerCase();
+}
+
 const CREATE_METHODS = [
   'createXml', 'createXmlWithFiles'
 ];
@@ -76,18 +80,20 @@ const api = methods.reduce((def, method) => {
 }, {});
 
 function className(moduleName) { return upperFirst(toCamelCase(moduleName)); }
-function writeClassDefinition(stream, moduleName, def) {
-  stream.write(`class ${className(moduleName)} {\n`);
+function generateClassDefinition(moduleName, def) {
+  let out = '';
+  out += `class ${className(moduleName)} {\n`;
 
   if (moduleName === 'connect') {
-    stream.write('  constructor() {}\n');
+    out += '  constructor() {}\n';
   } else {
-    stream.write('  constructor(conn, attr) {\n');
-    stream.write('    this.conn = conn;\n');
-    stream.write(`    this.ref = new rp.remote_${moduleName}(attr);\n`);
-    stream.write('  }\n');
+    out += '  constructor(conn, attr) {\n';
+    out += '    this.conn = conn;\n';
+    out += `    this.ref = new rp.remote_${moduleName}(attr);\n`;
+    out += '  }\n';
   }
-  stream.write('}\n\n');
+  out += '}\n\n';
+  return out;
 }
 
 function isRef(module, param) {
@@ -100,75 +106,98 @@ function isRef(module, param) {
          (module === 'storage_vol' && param === 'vol');
 }
 
-for (let module in api) {
-  let stream = fs.createWriteStream(path.resolve('..', `lib/${module}.js`));
-  stream.write("'use strict';\nconst rp = {};\nconst proc = rp.remote_procedure;\n\n");
+function generateMethodDefinition(module, methodName, def) {
+  let out = '';
+  let procName = def.proc;
+  let methodArgs = def.args;
+  let methodReturn = def.ret;
+  let lookupType = def.lookupType;
 
-  writeClassDefinition(stream, module, api[module]);
-
-  for (let method in api[module]) {
-    let procName = api[module][method].proc;
-    let methodArgs = api[module][method].args;
-    let methodReturn = api[module][method].ret;
-    let lookupType = api[module][method].lookupType;
-
-    let signatureBits = [];
-    if (methodArgs) {
-      signatureBits = methodArgs.members.map(m => toCamelCase(m.name));
-      if (isRef(module, signatureBits[0])) signatureBits.shift();
-    }
-    signatureBits.push('callback');
-    let signature = signatureBits.join(', ');
-
-    // console.dir(api[module][method], { depth: null });
-    stream.write('/**\n *\n');
-    if (methodArgs) {
-      methodArgs.members.map(m => stream.write(` * @param ${toCamelCase(m.name)}\n`));
-    }
-    stream.write(' * @param [callback]\n');
-    stream.write(' */\n');
-    stream.write(`${className(module)}.prototype.${method} = function(${signature}) {\n`);
-
-    if (methodArgs) {
-      stream.write(`  let args = new rp.${methodArgs.name}({\n`);
-      stream.write(methodArgs.members.reduce((out, m) => {
-        if (isRef(module, m.name)) {
-          out.push(`    ${toCamelCase(m.name)}: this.ref`);
-        } else {
-          out.push(`    ${toCamelCase(m.name)}: ${toCamelCase(m.name)}`);
-        }
-
-        return out;
-      }, []).join(',\n'));
-      stream.write('\n  });\n\n');
-    }
-
-    let maybeArgs = (!!methodArgs) ? 'args.toXDR()' : 'null';
-    stream.write('  let promise = new Promise((resolve, reject) => {\n');
-    stream.write('    let cb = (e, r) => (e) ? reject(e) : resolve(r);\n');
-
-    if (module === 'connect') {
-      stream.write(`    this.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`);
-    } else {
-      stream.write(`    this.conn.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`);
-    }
-
-    stream.write('      if (err) { cb(err, null); return; }\n');
-
-    if (methodReturn) {
-      stream.write(`      let result = rp.${methodReturn.name}.fromXDR(payload);\n`);
-      stream.write(`      result = result.hasOwnProperty('_attributes') ? result._attributes : result;\n`);
-      if (lookupType) {
-        stream.write(`      cb(null, new ${lookupType}(this, result));\n`);
-      } else {
-        stream.write('      cb(null, result);\n');
-      }
-    } else {
-      stream.write('      cb();\n');
-    }
-    stream.write('    });\n');
-    stream.write('  });\n\n');
-    stream.write('  return promise.asCallback(callback);\n');
-    stream.write('};\n\n');
+  let signatureBits = [];
+  if (methodArgs) {
+    signatureBits = methodArgs.members.map(m => toCamelCase(m.name));
+    if (isRef(module, signatureBits[0])) signatureBits.shift();
   }
+  signatureBits.push('callback');
+  let signature = signatureBits.join(', ');
+
+  out += '/**\n *\n';
+  if (methodArgs) {
+    methodArgs.members.map(m => { out += ` * @param ${toCamelCase(m.name)}\n`; });
+  }
+  out += ' * @param [callback]\n';
+  out += ' */\n';
+  out += `${className(module)}.prototype.${methodName} = function(${signature}) {\n`;
+
+  if (methodArgs) {
+    out += `  let args = new rp.${methodArgs.name}({\n`;
+    out += (methodArgs.members.reduce((r, m) => {
+      if (isRef(module, m.name)) {
+        r.push(`    ${toCamelCase(m.name)}: this.ref`);
+      } else {
+        r.push(`    ${toCamelCase(m.name)}: ${toCamelCase(m.name)}`);
+      }
+
+      return r;
+    }, []).join(',\n'));
+    out += '\n  });\n\n';
+  }
+
+  let maybeArgs = (!!methodArgs) ? 'args.toXDR()' : 'null';
+  out += '  let promise = new Promise((resolve, reject) => {\n';
+  out += '    let cb = (e, r) => (e) ? reject(e) : resolve(r);\n';
+
+  if (module === 'connect') {
+    out += `    this.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`;
+  } else {
+    out += `    this.conn.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`;
+  }
+
+  out += '      if (err) { cb(err, null); return; }\n';
+
+  if (methodReturn) {
+    out += `      let result = rp.${methodReturn.name}.fromXDR(payload);\n`;
+    out += `      result = result.hasOwnProperty('_attributes') ? result._attributes : result;\n`;
+    if (lookupType) {
+      out += `      cb(null, new ${lookupType}(this, result));\n`;
+    } else {
+      out += '      cb(null, result);\n';
+    }
+  } else {
+    out += '      cb();\n';
+  }
+  out += '    });\n';
+  out += '  });\n\n';
+  out += '  return promise.asCallback(callback);\n';
+  out += '};\n\n';
+
+  return out;
+}
+
+function generateImports(requiredModules) {
+  let out = '';
+  out += "'use strict';\nconst rp = require('./protocol').remote;\nconst proc = rp.remote_procedure;\n";
+  for (let module of requiredModules) {
+    out += `const ${upperFirst(toCamelCase(module))} = require('${module}');\n`;
+  }
+
+  out += '\n';
+  return out;
+}
+
+for (let module in api) {
+  let generated = '';
+  generated += generateClassDefinition(module, api[module]);
+
+  let requiredModules = new Set();
+  for (let method in api[module]) {
+    generated += generateMethodDefinition(module, method, api[module][method]);
+    if (api[module][method].lookupType) {
+      requiredModules.add(toSnakeCase(api[module][method].lookupType));
+    }
+  }
+
+  let stream = fs.createWriteStream(path.resolve('..', `lib/${module}.js`));
+  generated = generateImports(requiredModules) + generated;
+  stream.write(generated);
 }
