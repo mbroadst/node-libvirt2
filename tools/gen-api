@@ -43,6 +43,7 @@ const api = methods.reduce((def, method) => {
   let methodBits = method.name.replace('remote_', '').replace(suffix, '').split('_');
   let procName = 'REMOTE_PROC_' + methodBits.map(b => b.toUpperCase()).join('_');
   let section = methodBits.shift();
+  if (section === 'connect') section = 'connection';
   if (section === 'storage') { section += '_' + methodBits.shift(); }
   if (section === 'node') {
     if (methodBits[0] === 'device') section += '_' + methodBits.shift();
@@ -60,7 +61,7 @@ const api = methods.reduce((def, method) => {
     methodName =
       methodBits.map((bit, idx) => idx !== 0 ? upperFirst(bit) : bit).join('');
     lookupType = className(section);
-    section = (section === 'storage_vol') ? 'storage_pool' : 'connect';
+    section = (section === 'storage_vol') ? 'storage_pool' : 'connection';
   }
 
   if (def[section].hasOwnProperty(methodName)) {
@@ -82,11 +83,12 @@ const api = methods.reduce((def, method) => {
 function className(moduleName) { return upperFirst(toCamelCase(moduleName)); }
 function generateClassDefinition(moduleName, def) {
   let out = '';
-  out += `class ${className(moduleName)} {\n`;
 
-  if (moduleName === 'connect') {
-    out += '  constructor() {}\n';
+  if (moduleName === 'connection') {
+    out += `class ${className(moduleName)} extends ConnectionBase {\n`;
+    out += '  constructor() { super(); }\n';
   } else {
+    out += `class ${className(moduleName)} {\n`;
     out += '  constructor(conn, attr) {\n';
     out += '    this.conn = conn;\n';
     out += `    this.ref = new rp.remote_${moduleName}(attr);\n`;
@@ -147,7 +149,7 @@ function generateMethodDefinition(module, methodName, def) {
   out += '  let promise = new Promise((resolve, reject) => {\n';
   out += '    let cb = (e, r) => (e) ? reject(e) : resolve(r);\n';
 
-  if (module === 'connect') {
+  if (module === 'connection') {
     out += `    this.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`;
   } else {
     out += `    this.conn.request(proc.${procName}(), ${maybeArgs}, (err, payload) => {\n`;
@@ -176,9 +178,12 @@ function generateMethodDefinition(module, methodName, def) {
 
 function generateImports(requiredModules) {
   let out = '';
-  out += "'use strict';\nconst rp = require('./protocol').remote;\nconst proc = rp.remote_procedure;\n";
+  out += "'use strict';\n";
+  out += "const Promise = require('bluebird');\n";
+  out += "const rp = require('./protocol').remote;\n";
+  out += 'const proc = rp.remote_procedure;\n';
   for (let module of requiredModules) {
-    out += `const ${upperFirst(toCamelCase(module))} = require('${module}');\n`;
+    out += `const ${upperFirst(toCamelCase(module))} = require('./${module}');\n`;
   }
 
   out += '\n';
@@ -190,6 +195,7 @@ for (let module in api) {
   generated += generateClassDefinition(module, api[module]);
 
   let requiredModules = new Set();
+  if (module === 'connection') requiredModules.add('connection_base');
   for (let method in api[module]) {
     generated += generateMethodDefinition(module, method, api[module][method]);
     if (api[module][method].lookupType) {
@@ -199,5 +205,6 @@ for (let module in api) {
 
   let stream = fs.createWriteStream(path.resolve('..', `lib/${module}.js`));
   generated = generateImports(requiredModules) + generated;
+  generated += `module.exports = ${className(module)};\n`;
   stream.write(generated);
 }

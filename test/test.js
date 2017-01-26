@@ -2,7 +2,7 @@
 const Connection = require('../lib/connection');
 
 let client = new Connection();
-client.connect({ host: '192.168.1.11', port: 16509 }, err => {
+client.connect({ host: '192.168.11.77', port: 16509 }, err => {
   if (err) {
     console.log('error: ', err);
     process.exit(1);
