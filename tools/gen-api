@@ -91,7 +91,7 @@ function generateClassDefinition(moduleName, def) {
     out += `class ${className(moduleName)} {\n`;
     out += '  constructor(conn, attr) {\n';
     out += '    this.conn = conn;\n';
-    out += `    this.ref = new rp.remote_${moduleName}(attr);\n`;
+    out += `    this.ref = new rp.remote_nonnull_${moduleName}(attr);\n`;
     out += '  }\n';
   }
   out += '}\n\n';
@@ -159,7 +159,11 @@ function generateMethodDefinition(module, methodName, def) {
 
   if (methodReturn) {
     out += `      let result = rp.${methodReturn.name}.fromXDR(payload);\n`;
+    if (methodReturn.members.length === 1) {
+      out += `      result = result.${methodReturn.members[0].name}();\n`;
+    }
     out += `      result = result.hasOwnProperty('_attributes') ? result._attributes : result;\n`;
+
     if (lookupType) {
       out += `      cb(null, new ${lookupType}(this, result));\n`;
     } else {
