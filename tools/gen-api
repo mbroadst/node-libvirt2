@@ -108,6 +108,22 @@ function isRef(module, param) {
          (module === 'storage_vol' && param === 'vol');
 }
 
+const NUMBER_TYPES = [ 'int', 'unsigned int', 'hyper', 'unsigned hyper', 'double', 'float' ];
+function generateArgDefault(arg) {
+  let argName = toCamelCase(arg.name);
+
+  let out = '';
+  if (NUMBER_TYPES.indexOf(arg.type) !== -1) out = `  ${argName} = ${argName} || 0;`;
+  return out;
+}
+
+function generateMethodDefaults(methodArgs) {
+  let out = '';
+  out += methodArgs.members.map(generateArgDefault).filter(d => d !== '').join('\n');
+  out += '\n';
+  return out;
+}
+
 function generateMethodDefinition(module, methodName, def) {
   let out = '';
   let procName = def.proc;
@@ -132,6 +148,8 @@ function generateMethodDefinition(module, methodName, def) {
   out += `${className(module)}.prototype.${methodName} = function(${signature}) {\n`;
 
   if (methodArgs) {
+    out += generateMethodDefaults(methodArgs);
+
     out += `  let args = new rp.${methodArgs.name}({\n`;
     out += (methodArgs.members.reduce((r, m) => {
       if (isRef(module, m.name)) {
