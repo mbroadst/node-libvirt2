@@ -124,6 +124,26 @@ function generateMethodDefaults(methodArgs) {
   return out;
 }
 
+function docTypeForType(type) {
+  if (type.match(/boolean/)) return '{Boolean}';
+  if (type.match(/string/)) return '{String}';
+  if (NUMBER_TYPES.indexOf(type) !== -1) return '{Number}';
+  return '{Object}';
+}
+
+function generateDocumentation(module, args) {
+  let out = '/**\n *\n';
+  if (args) {
+    args.members.map(m => {
+      if (isRef(module, m.name)) return;
+      out += ` * @param ${docTypeForType(m.type)} ${toCamelCase(m.name)}\n`;
+    });
+  }
+  out += ' * @param {Function} [callback]\n';
+  out += ' */\n';
+  return out;
+}
+
 function generateMethodDefinition(module, methodName, def) {
   let out = '';
   let procName = def.proc;
@@ -139,12 +159,7 @@ function generateMethodDefinition(module, methodName, def) {
   signatureBits.push('callback');
   let signature = signatureBits.join(', ');
 
-  out += '/**\n *\n';
-  if (methodArgs) {
-    methodArgs.members.map(m => { out += ` * @param ${toCamelCase(m.name)}\n`; });
-  }
-  out += ' * @param [callback]\n';
-  out += ' */\n';
+  out += generateDocumentation(module, methodArgs);
   out += `${className(module)}.prototype.${methodName} = function(${signature}) {\n`;
 
   if (methodArgs) {
